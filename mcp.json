@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "yr-weather": {
+      "command": "yr-weather-mcp",
+      "args": [],
+      "env": {
+        "RUST_LOG": "yr_weather_mcp=debug"
+      }
+    }
+  }
+}
