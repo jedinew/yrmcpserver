@@ -1,15 +1,15 @@
-# LLM 연동 가이드
+# LLM Integration Guide
 
-## 1. Claude Desktop 연동
+## 1. Claude Desktop Integration
 
-### macOS 설정
+### macOS
 
-1. Claude Desktop 설정 파일 위치 확인:
+1. Locate Claude Desktop configuration file:
 ```bash
 ~/Library/Application Support/Claude/claude_desktop_config.json
 ```
 
-2. 설정 파일 편집 (크로스 플랫폼 친화적):
+2. Edit the configuration file (cross-platform friendly):
 ```json
 {
   "mcpServers": {
@@ -23,7 +23,7 @@
 }
 ```
 
-또는 개발 모드로 실행하려면 (상대 경로 사용 권장):
+Or to run in development mode (relative paths recommended):
 ```json
 {
   "mcpServers": {
@@ -38,24 +38,24 @@
 }
 ```
 
-3. Claude Desktop 재시작
+3. Restart Claude Desktop
 
-4. 사용 확인:
-   - Claude Desktop에서 MCP 도구 아이콘이 나타나는지 확인
-   - "서울 날씨 알려줘" 같은 명령어로 테스트
+4. Verify:
+   - Ensure the MCP tools icon appears in Claude Desktop
+   - Test with a prompt such as "What’s the weather in Seoul?"
 
-### Windows 설정
+### Windows
 
-설정 파일 위치:
+Configuration file location:
 ```
 %APPDATA%\Claude\claude_desktop_config.json
 ```
 
-## 2. VS Code + Continue 연동
+## 2. VS Code + Continue Integration
 
-1. Continue 확장 설치
+1. Install the Continue extension
 
-2. `.continuerc.json` 설정:
+2. Configure `.continuerc.json`:
 ```json
 {
   "models": [
@@ -72,18 +72,18 @@
 }
 ```
 
-## 3. CLI를 통한 직접 연동
+## 3. Direct CLI Integration
 
 ### Claude CLI (claude-cli)
 
 ```bash
-# Claude CLI와 MCP 서버 연동
+# Link Claude CLI with the MCP server
 claude --mcp-server "yr-weather-mcp"
 ```
 
-### 커스텀 통합
+### Custom Integration
 
-Python 예제:
+Python example:
 ```python
 import subprocess
 import json
@@ -135,15 +135,15 @@ class MCPClient:
         
         return result
 
-# 사용 예시
-client = MCPClient("cargo run --manifest-path /Users/jedi/code/yrmcpserver/Cargo.toml")
+# Example usage
+client = MCPClient("yr-weather-mcp")
 weather = client.get_weather("Seoul")
 print(weather)
 ```
 
-## 4. Docker 컨테이너로 실행
+## 4. Run with Docker
 
-### Dockerfile 생성
+### Dockerfile
 ```dockerfile
 FROM rust:1.75 as builder
 WORKDIR /app
@@ -156,82 +156,79 @@ COPY --from=builder /app/target/release/yr-weather-mcp /usr/local/bin/
 CMD ["yr-weather-mcp"]
 ```
 
-### Docker Compose 설정
+### Docker Compose
 ```yaml
 version: '3.8'
 services:
   yr-weather-mcp:
     build: .
     ports:
-      - "3000:3000"  # MCP 기본 포트
+      - "3000:3000"  # MCP default port (if applicable)
     environment:
       - RUST_LOG=yr_weather_mcp=info
 ```
 
-## 5. 테스트 방법
+## 5. Testing
 
-### 직접 테스트
+### Manual test
 ```bash
-# 서버 실행 (빌드 없으면 자동 빌드)
+# Start the server (auto-builds if missing)
 ./run_server.sh
 
-# 다른 터미널에서 테스트 (예: echo로 JSON-RPC 요청 보내기)
+# From another terminal, send a JSON-RPC request
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"0.1.0","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | yr-weather-mcp
 ```
 
-### 자동화 테스트 스크립트
+### Automated test script
 ```bash
 #!/bin/bash
 # test_mcp.sh
 
-# 서버 시작
+# Start server
 cargo run &
 SERVER_PID=$!
 sleep 2
 
-# 테스트 요청 보내기
+# Send test request
 cat << EOF | nc localhost 3000
 {"jsonrpc":"2.0","id":1,"method":"tools/list"}
 EOF
 
-# 서버 종료
+# Stop server
 kill $SERVER_PID
 ```
 
-## 6. 문제 해결
+## 6. Troubleshooting
 
-### 서버가 시작되지 않을 때
-1. Rust가 설치되어 있는지 확인: `rustc --version`
-2. 의존성 설치: `cargo build`
-3. 로그 레벨 확인: `RUST_LOG=debug cargo run`
+### If the server does not start
+1. Ensure Rust is installed: `rustc --version`
+2. Build dependencies: `cargo build`
+3. Check logs: `RUST_LOG=yr_weather_mcp=debug cargo run`
 
-### Claude Desktop에서 인식하지 못할 때
-1. 설정 파일 경로 확인
-2. 실행 파일 경로가 절대 경로인지 확인
-3. Claude Desktop 완전히 종료 후 재시작
-4. 콘솔 로그 확인: Claude Desktop 개발자 도구 열기
+### If Claude Desktop does not detect the server
+1. Verify configuration file path
+2. Ensure the executable is accessible on PATH or specify a valid command
+3. Fully quit and restart Claude Desktop
+4. Inspect console logs via Claude Desktop developer tools
 
-### 날씨 정보를 가져오지 못할 때
-1. 인터넷 연결 확인
-2. YR API 상태 확인
-3. 도시 이름이 지원 목록에 있는지 확인
+### If weather data cannot be fetched
+1. Check internet connectivity
+2. Verify YR API status
+3. Confirm coordinates are correct or the city is supported
 
-## 7. 추가 설정
+## 7. Additional Settings
 
-### 프록시 설정
+### Proxy settings
 ```bash
 export HTTP_PROXY=http://proxy.example.com:8080
 export HTTPS_PROXY=http://proxy.example.com:8080
 cargo run
 ```
 
-### 커스텀 도시 추가
-`src/weather.rs`의 `CITY_COORDINATES`에 새 도시 추가:
-```rust
-m.insert("jeju".to_string(), Coordinates { lat: 33.4996, lon: 126.5312 });
-```
+### Custom city support
+Add custom logic to map city names to coordinates in your client before calling `get_weather`.
 
-## 지원 및 문의
+## Support
 
-- GitHub Issues: [프로젝트 저장소]/issues
-- YR API 문서: https://api.met.no/weatherapi/locationforecast/2.0/documentation
+- GitHub Issues: [repository]/issues
+- YR API Docs: https://api.met.no/weatherapi/locationforecast/2.0/documentation

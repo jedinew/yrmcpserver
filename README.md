@@ -1,28 +1,28 @@
 # YR Weather MCP Server
 
-YR.no API를 사용하는 Rust 기반 MCP (Model Context Protocol) 서버입니다.
+Rust-based MCP (Model Context Protocol) server that uses the YR.no (Norwegian Meteorological Institute) API to provide weather forecasts to LLMs.
 
-## 기능
+## Features
 
-- YR.no (Norwegian Meteorological Institute) API를 통한 날씨 정보 제공
-- 한국어 도시명 지원 (서울, 부산, 인천 등)
-- 주요 세계 도시 지원
+- Current, tomorrow, and 7-day forecasts via the YR.no API
+- Cross-platform run scripts (macOS/Linux and Windows)
+- Portable MCP configuration for easy integration
 
-## 설치
+## Installation
 
-1. Rust 설치 (설치되어 있지 않은 경우):
+1) Install Rust (if you don’t have it):
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-2. 프로젝트 빌드:
+2) Build the project:
 ```bash
 cargo build --release
 ```
 
-## 사용법
+## Usage
 
-### MCP 서버 실행
+### Run the MCP server
 
 ```bash
 # macOS / Linux
@@ -31,13 +31,13 @@ cargo build --release
 # Windows (PowerShell)
 powershell -ExecutionPolicy Bypass -File .\run_server.ps1
 
-# 또는 PATH에 추가되어 있다면 직접 실행
+# Or run the binary directly if it’s on PATH
 yr-weather-mcp
 ```
 
-### Claude Desktop 설정
+### Claude Desktop configuration
 
-`claude_desktop_config.json`에 다음 설정 추가 (크로스 플랫폼):
+Add this to your `claude_desktop_config.json` (cross-platform):
 
 ```json
 {
@@ -52,30 +52,14 @@ yr-weather-mcp
 }
 ```
 
-### 사용 예시
+### Example prompts
 
-LLM에서 다음과 같이 질문:
-- "YR 날씨 알려줘 나는 현재 서울에 있어"
-- "도쿄 날씨 어때?"
-- "뉴욕 날씨 정보 알려줘"
+- "What’s the current weather in Seoul?"
+- "How’s the weather in Tokyo tomorrow?"
+- "Give me New York’s weekly forecast"
 
-## 지원 도시
+## API Information
 
-### 한국 도시
-- 서울 (Seoul)
-- 부산 (Busan)  
-- 인천 (Incheon)
-- 대구 (Daegu)
-- 대전 (Daejeon)
-- 광주 (Gwangju)
-
-### 세계 주요 도시
-- Tokyo, New York, London, Paris, Berlin
-- Moscow, Beijing, Shanghai, Singapore
-- Sydney, Los Angeles, San Francisco
-
-## API 정보
-
-이 서버는 YR.no의 무료 날씨 API를 사용합니다:
-- API 문서: https://api.met.no/weatherapi/locationforecast/2.0/documentation
-- 라이선스: 무료 (User-Agent 헤더 필요)
+This server uses YR.no’s free weather API:
+- Docs: https://api.met.no/weatherapi/locationforecast/2.0/documentation
+- Note: A valid User-Agent header is required by the API
