@@ -1,5 +1,8 @@
 name: release
 
+permissions:
+  contents: write
+
 on:
   push:
     tags:
@@ -15,15 +18,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Build release
         run: cargo build --release
+      - name: Collect artifact (non-Windows)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          cp target/release/yr-weather-mcp dist/yr-weather-mcp-${{ runner.os }}
+      - name: Collect artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target/release/yr-weather-mcp.exe dist/yr-weather-mcp-${{ runner.os }}.exe
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: yr-weather-mcp-${{ runner.os }}
-          path: |
-            target/release/yr-weather-mcp
-            target/release/yr-weather-mcp.exe
+          path: dist/*
 
   create-release:
     runs-on: ubuntu-latest
@@ -39,5 +52,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/**/yr-weather-mcp
-            artifacts/**/yr-weather-mcp.exe
+            artifacts/**/yr-weather-mcp-*
