@@ -18,3 +18,4 @@ Thumbs.db
 
 # Debug symbols
 *.dSYM/
+.aider*
