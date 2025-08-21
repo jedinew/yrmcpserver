@@ -120,8 +120,7 @@ impl WeatherClient {
         let weather_symbol = current.data.next_1_hours
             .as_ref()
             .or(current.data.next_6_hours.as_ref())
-            .and_then(|n| Some(&n.summary.symbol_code))
-            .unwrap_or("unknown");
+            .map_or("unknown", |n| n.summary.symbol_code.as_str());
         
         let weather_desc = get_weather_description(weather_symbol);
         
@@ -171,8 +170,7 @@ impl WeatherClient {
         let details = &tomorrow.data.instant.details;
         let weather_symbol = tomorrow.data.next_6_hours
             .as_ref()
-            .map(|n| &n.summary.symbol_code)
-            .unwrap_or("unknown");
+            .map_or("unknown", |n| n.summary.symbol_code.as_str());
         
         let weather_desc = get_weather_description(weather_symbol);
         let precipitation = tomorrow.data.next_6_hours
@@ -220,8 +218,7 @@ impl WeatherClient {
                 let weather_symbol = entry.data.next_6_hours
                     .as_ref()
                     .or(entry.data.next_1_hours.as_ref())
-                    .map(|n| &n.summary.symbol_code)
-                    .unwrap_or("unknown");
+                    .map_or("unknown", |n| n.summary.symbol_code.as_str());
                 
                 let weather_desc = get_weather_description(weather_symbol);
                 let precipitation = entry.data.next_6_hours
