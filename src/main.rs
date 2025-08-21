@@ -58,15 +58,19 @@ struct ToolCall {
 async fn main() -> Result<()> {
     use tracing_subscriber::EnvFilter;
     
+    // Improved logging initialization with error handling
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("yr_weather_mcp=debug"));
+    
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
-        .with_env_filter(EnvFilter::from_default_env()
-            .add_directive("yr_weather_mcp=debug".parse().unwrap()))
+        .with_env_filter(env_filter)
         .init();
 
     info!("YR Weather MCP Server starting...");
     
-    let weather_client = WeatherClient::new();
+    // Handle potential error from WeatherClient::new
+    let weather_client = WeatherClient::new()?;
     let stdin = io::stdin();
     let mut stdout = io::stdout();
     let mut stdin_lock = stdin.lock();
@@ -118,6 +122,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Handles incoming JSON-RPC requests
 async fn handle_request(request: JsonRpcRequest, weather_client: &WeatherClient) -> JsonRpcResponse {
     // Handle notifications (no response needed)
     if request.method.starts_with("notifications/") {

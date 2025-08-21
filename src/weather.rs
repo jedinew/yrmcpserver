@@ -1,7 +1,13 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use serde::Deserialize;
 
+/// API base URL for YR.no weather data
+const API_BASE_URL: &str = "https://api.met.no/weatherapi/locationforecast/2.0/compact";
+/// Default User-Agent string for API requests
+const USER_AGENT_STR: &str = "yr-weather-mcp/0.1.0 (https://github.com/example/yr-weather-mcp)";
+
+/// Client for fetching weather data from YR.no API
 pub struct WeatherClient {
     client: reqwest::Client,
 }
@@ -63,28 +69,28 @@ struct NextHoursDetails {
     precipitation_amount: Option<f64>,
 }
 
-
 impl WeatherClient {
-    pub fn new() -> Self {
+    /// Creates a new WeatherClient with appropriate headers
+    pub fn new() -> Result<Self> {
         let mut headers = HeaderMap::new();
         headers.insert(
             USER_AGENT,
-            HeaderValue::from_static("yr-weather-mcp/0.1.0 (https://github.com/example/yr-weather-mcp)"),
+            HeaderValue::from_static(USER_AGENT_STR),
         );
         
         let client = reqwest::Client::builder()
             .default_headers(headers)
             .build()
-            .expect("Failed to create HTTP client");
+            .map_err(|e| anyhow!("Failed to create HTTP client: {}", e))?;
             
-        Self { client }
+        Ok(Self { client })
     }
     
+    /// Fetches weather data by coordinates and returns formatted string
     pub async fn get_weather_by_coords(&self, lat: f64, lon: f64, location_name: &str, forecast_type: &str) -> Result<String> {
-        
         let url = format!(
-            "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat={:.4}&lon={:.4}",
-            lat, lon
+            "{}?lat={:.4}&lon={:.4}",
+            API_BASE_URL, lat, lon
         );
         
         let response = self.client
@@ -96,209 +102,162 @@ impl WeatherClient {
             .await?;
         
         match forecast_type {
-            "current" => {
-                // Get the current weather (first timeseries entry)
-                let current = response.properties.timeseries
-                    .first()
-                    .ok_or_else(|| anyhow::anyhow!("No weather data available"))?;
-                
-                let details = &current.data.instant.details;
-                
-                // Get weather condition from next_1_hours or next_6_hours
-                let default_symbol = "unknown".to_string();
-                let weather_symbol = current.data.next_1_hours
+            "current" => self.format_current_weather(&response, lat, lon, location_name).await,
+            "tomorrow" => self.format_tomorrow_weather(&response, lat, lon, location_name).await,
+            "weekly" => self.format_weekly_forecast(&response, lat, lon, location_name).await,
+            _ => self.format_current_weather(&response, lat, lon, location_name).await,
+        }
+    }
+    
+    /// Formats current weather data
+    async fn format_current_weather(&self, response: &WeatherResponse, lat: f64, lon: f64, location_name: &str) -> Result<String> {
+        let current = response.properties.timeseries
+            .first()
+            .ok_or_else(|| anyhow!("No weather data available"))?;
+        
+        let details = &current.data.instant.details;
+        
+        let weather_symbol = current.data.next_1_hours
+            .as_ref()
+            .or(current.data.next_6_hours.as_ref())
+            .and_then(|n| Some(&n.summary.symbol_code))
+            .unwrap_or("unknown");
+        
+        let weather_desc = get_weather_description(weather_symbol);
+        
+        let precipitation = current.data.next_1_hours
+            .as_ref()
+            .and_then(|n| n.details.as_ref())
+            .and_then(|d| d.precipitation_amount)
+            .unwrap_or(0.0);
+        
+        let wind_direction = get_wind_direction(details.wind_from_direction);
+        
+        let result = format!(
+            "🌍 **Current Weather**\n\
+            📍 **Location:** {}\n\
+            🗺️ **Coordinates:** {:.4}°, {:.4}°\n\n\
+            🌡️ **Temperature:** {:.1}°C\n\
+            ☁️ **Condition:** {}\n\
+            💧 **Humidity:** {:.0}%\n\
+            🌬️ **Wind:** {:.1} m/s from {}\n\
+            🌧️ **Precipitation (1h):** {:.1} mm\n\
+            ☁️ **Cloud coverage:** {:.0}%\n\
+            🔵 **Air pressure:** {:.0} hPa\n\n\
+            *Data from YR.no (Norwegian Meteorological Institute)*",
+            location_name,
+            lat,
+            lon,
+            details.air_temperature,
+            weather_desc,
+            details.relative_humidity,
+            details.wind_speed,
+            wind_direction,
+            precipitation,
+            details.cloud_area_fraction,
+            details.air_pressure_at_sea_level
+        );
+        
+        Ok(result)
+    }
+    
+    /// Formats tomorrow's weather data
+    async fn format_tomorrow_weather(&self, response: &WeatherResponse, lat: f64, lon: f64, location_name: &str) -> Result<String> {
+        let tomorrow_index = 24;
+        let tomorrow = response.properties.timeseries
+            .get(tomorrow_index)
+            .ok_or_else(|| anyhow!("No forecast data for tomorrow"))?;
+        
+        let details = &tomorrow.data.instant.details;
+        let weather_symbol = tomorrow.data.next_6_hours
+            .as_ref()
+            .map(|n| &n.summary.symbol_code)
+            .unwrap_or("unknown");
+        
+        let weather_desc = get_weather_description(weather_symbol);
+        let precipitation = tomorrow.data.next_6_hours
+            .as_ref()
+            .and_then(|n| n.details.as_ref())
+            .and_then(|d| d.precipitation_amount)
+            .unwrap_or(0.0);
+        
+        let result = format!(
+            "📅 **Tomorrow's Weather**\n\
+            📍 **Location:** {}\n\
+            🗺️ **Coordinates:** {:.4}°, {:.4}°\n\n\
+            🌡️ **Temperature:** {:.1}°C\n\
+            ☁️ **Condition:** {}\n\
+            💧 **Humidity:** {:.0}%\n\
+            🌬️ **Wind:** {:.1} m/s\n\
+            🌧️ **Precipitation (6h):** {:.1} mm\n\n\
+            *Data from YR.no (Norwegian Meteorological Institute)*",
+            location_name,
+            lat,
+            lon,
+            details.air_temperature,
+            weather_desc,
+            details.relative_humidity,
+            details.wind_speed,
+            precipitation
+        );
+        
+        Ok(result)
+    }
+    
+    /// Formats weekly weather forecast
+    async fn format_weekly_forecast(&self, response: &WeatherResponse, lat: f64, lon: f64, location_name: &str) -> Result<String> {
+        let mut forecast = format!(
+            "📆 **7-Day Weather Forecast**\n\
+            📍 **Location:** {}\n\
+            🗺️ **Coordinates:** {:.4}°, {:.4}°\n\n",
+            location_name, lat, lon
+        );
+        
+        for day in 0..7 {
+            let index = day * 24;
+            if let Some(entry) = response.properties.timeseries.get(index) {
+                let details = &entry.data.instant.details;
+                let weather_symbol = entry.data.next_6_hours
                     .as_ref()
-                    .or(current.data.next_6_hours.as_ref())
+                    .or(entry.data.next_1_hours.as_ref())
                     .map(|n| &n.summary.symbol_code)
-                    .unwrap_or(&default_symbol);
+                    .unwrap_or("unknown");
                 
                 let weather_desc = get_weather_description(weather_symbol);
-                
-                // Get precipitation if available
-                let precipitation = current.data.next_1_hours
+                let precipitation = entry.data.next_6_hours
                     .as_ref()
+                    .or(entry.data.next_1_hours.as_ref())
                     .and_then(|n| n.details.as_ref())
                     .and_then(|d| d.precipitation_amount)
                     .unwrap_or(0.0);
                 
-                let wind_direction = get_wind_direction(details.wind_from_direction);
+                let day_name = match day {
+                    0 => "Today",
+                    1 => "Tomorrow",
+                    2 => "Day 3",
+                    3 => "Day 4",
+                    4 => "Day 5",
+                    5 => "Day 6",
+                    6 => "Day 7",
+                    _ => "Unknown",
+                };
                 
-                let result = format!(
-                    "🌍 **Current Weather**\n\
-                    📍 **Location:** {}\n\
-                    🗺️ **Coordinates:** {:.4}°, {:.4}°\n\n\
-                    🌡️ **Temperature:** {:.1}°C\n\
-                    ☁️ **Condition:** {}\n\
-                    💧 **Humidity:** {:.0}%\n\
-                    🌬️ **Wind:** {:.1} m/s from {}\n\
-                    🌧️ **Precipitation (1h):** {:.1} mm\n\
-                    ☁️ **Cloud coverage:** {:.0}%\n\
-                    🔵 **Air pressure:** {:.0} hPa\n\n\
-                    *Data from YR.no (Norwegian Meteorological Institute)*",
-                    location_name,
-                    lat,
-                    lon,
-                    details.air_temperature,
+                forecast.push_str(&format!(
+                    "**{}**: {} | 🌡️ {:.1}°C | 💧 {:.1}mm\n",
+                    day_name,
                     weather_desc,
-                    details.relative_humidity,
-                    details.wind_speed,
-                    wind_direction,
-                    precipitation,
-                    details.cloud_area_fraction,
-                    details.air_pressure_at_sea_level
-                );
-                
-                Ok(result)
-            }
-            "tomorrow" => {
-                // Get tomorrow's weather (24 hours from now)
-                let tomorrow_index = 24; // Hourly data, so 24 entries = 24 hours
-                let tomorrow = response.properties.timeseries
-                    .get(tomorrow_index)
-                    .ok_or_else(|| anyhow::anyhow!("No forecast data for tomorrow"))?;
-                
-                let details = &tomorrow.data.instant.details;
-                let default_symbol = "unknown".to_string();
-                let weather_symbol = tomorrow.data.next_6_hours
-                    .as_ref()
-                    .map(|n| &n.summary.symbol_code)
-                    .unwrap_or(&default_symbol);
-                
-                let weather_desc = get_weather_description(weather_symbol);
-                let precipitation = tomorrow.data.next_6_hours
-                    .as_ref()
-                    .and_then(|n| n.details.as_ref())
-                    .and_then(|d| d.precipitation_amount)
-                    .unwrap_or(0.0);
-                
-                let result = format!(
-                    "📅 **Tomorrow's Weather**\n\
-                    📍 **Location:** {}\n\
-                    🗺️ **Coordinates:** {:.4}°, {:.4}°\n\n\
-                    🌡️ **Temperature:** {:.1}°C\n\
-                    ☁️ **Condition:** {}\n\
-                    💧 **Humidity:** {:.0}%\n\
-                    🌬️ **Wind:** {:.1} m/s\n\
-                    🌧️ **Precipitation (6h):** {:.1} mm\n\n\
-                    *Data from YR.no (Norwegian Meteorological Institute)*",
-                    location_name,
-                    lat,
-                    lon,
                     details.air_temperature,
-                    weather_desc,
-                    details.relative_humidity,
-                    details.wind_speed,
                     precipitation
-                );
-                
-                Ok(result)
-            }
-            "weekly" => {
-                // Get weekly forecast (every 24 hours for 7 days)
-                let mut forecast = format!(
-                    "📆 **7-Day Weather Forecast**\n\
-                    📍 **Location:** {}\n\
-                    🗺️ **Coordinates:** {:.4}°, {:.4}°\n\n",
-                    location_name, lat, lon
-                );
-                
-                for day in 0..7 {
-                    let index = day * 24; // 24 hours per day
-                    if let Some(entry) = response.properties.timeseries.get(index) {
-                        let details = &entry.data.instant.details;
-                        let default_symbol = "unknown".to_string();
-                        let weather_symbol = entry.data.next_6_hours
-                            .as_ref()
-                            .or(entry.data.next_1_hours.as_ref())
-                            .map(|n| &n.summary.symbol_code)
-                            .unwrap_or(&default_symbol);
-                        
-                        let weather_desc = get_weather_description(weather_symbol);
-                        let precipitation = entry.data.next_6_hours
-                            .as_ref()
-                            .or(entry.data.next_1_hours.as_ref())
-                            .and_then(|n| n.details.as_ref())
-                            .and_then(|d| d.precipitation_amount)
-                            .unwrap_or(0.0);
-                        
-                        let day_name = match day {
-                            0 => "Today",
-                            1 => "Tomorrow",
-                            2 => "Day 3",
-                            3 => "Day 4",
-                            4 => "Day 5",
-                            5 => "Day 6",
-                            6 => "Day 7",
-                            _ => "Unknown",
-                        };
-                        
-                        forecast.push_str(&format!(
-                            "**{}**: {} | 🌡️ {:.1}°C | 💧 {:.1}mm\n",
-                            day_name,
-                            weather_desc,
-                            details.air_temperature,
-                            precipitation
-                        ));
-                    }
-                }
-                
-                forecast.push_str("\n*Data from YR.no (Norwegian Meteorological Institute)*");
-                Ok(forecast)
-            }
-            _ => {
-                // Default to current weather - duplicate the logic to avoid recursion
-                let current = response.properties.timeseries
-                    .first()
-                    .ok_or_else(|| anyhow::anyhow!("No weather data available"))?;
-                
-                let details = &current.data.instant.details;
-                let default_symbol = "unknown".to_string();
-                let weather_symbol = current.data.next_1_hours
-                    .as_ref()
-                    .or(current.data.next_6_hours.as_ref())
-                    .map(|n| &n.summary.symbol_code)
-                    .unwrap_or(&default_symbol);
-                
-                let weather_desc = get_weather_description(weather_symbol);
-                let precipitation = current.data.next_1_hours
-                    .as_ref()
-                    .and_then(|n| n.details.as_ref())
-                    .and_then(|d| d.precipitation_amount)
-                    .unwrap_or(0.0);
-                
-                let wind_direction = get_wind_direction(details.wind_from_direction);
-                
-                let result = format!(
-                    "🌍 **Current Weather**\n\
-                    📍 **Location:** {}\n\
-                    🗺️ **Coordinates:** {:.4}°, {:.4}°\n\n\
-                    🌡️ **Temperature:** {:.1}°C\n\
-                    ☁️ **Condition:** {}\n\
-                    💧 **Humidity:** {:.0}%\n\
-                    🌬️ **Wind:** {:.1} m/s from {}\n\
-                    🌧️ **Precipitation (1h):** {:.1} mm\n\
-                    ☁️ **Cloud coverage:** {:.0}%\n\
-                    🔵 **Air pressure:** {:.0} hPa\n\n\
-                    *Data from YR.no (Norwegian Meteorological Institute)*",
-                    location_name,
-                    lat,
-                    lon,
-                    details.air_temperature,
-                    weather_desc,
-                    details.relative_humidity,
-                    details.wind_speed,
-                    wind_direction,
-                    precipitation,
-                    details.cloud_area_fraction,
-                    details.air_pressure_at_sea_level
-                );
-                
-                Ok(result)
+                ));
             }
         }
+        
+        forecast.push_str("\n*Data from YR.no (Norwegian Meteorological Institute)*");
+        Ok(forecast)
     }
 }
 
+/// Converts weather symbol code to human-readable description
 fn get_weather_description(symbol_code: &str) -> &str {
     match symbol_code {
         s if s.starts_with("clearsky") => "Clear sky ☀️",
@@ -316,6 +275,7 @@ fn get_weather_description(symbol_code: &str) -> &str {
     }
 }
 
+/// Converts wind direction in degrees to compass direction
 fn get_wind_direction(degrees: f64) -> &'static str {
     match degrees as i32 {
         d if d < 23 || d >= 338 => "North",
